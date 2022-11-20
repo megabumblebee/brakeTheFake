@@ -1,5 +1,4 @@
 import {BaseEntity, Column, Entity, OneToMany, PrimaryGeneratedColumn} from "typeorm";
-import {Information} from "../../information/entities/information.entity";
 import {News} from "../../news/entities/news.entity";
 
 @Entity()
@@ -19,8 +18,8 @@ export class Category extends BaseEntity {
   news: News[];
 
   @OneToMany(
-    type => Information,
+    type => News,
     entity => entity.category,
   )
-  information: Information[];
+  information: News[];
 }

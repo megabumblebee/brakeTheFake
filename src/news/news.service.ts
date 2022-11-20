@@ -10,10 +10,36 @@ import {Feed, NewsRes, Webpage} from "./news.interface";
 import {User} from "../user/entities/user.entity";
 import {MoreThan} from "typeorm";
 import {Category} from "../category/entities/category.entity";
+import {Tag} from "../tag/entities/tag.entity";
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { convert } = require('html-to-text');
 const sentiment = require('sentiment-polish');
+
+const fake = [
+  "prawdopodobnie",
+  "rzekomo",
+  "może",
+  "ponoć",
+  "wydaje",
+  "zdaje",
+  "chyba",
+  "możliwe",
+  "przypuszczalnie",
+  "podobno",
+  "zapewne",
+];
+const legit = [
+  "potwierdził",
+  "udowodnił",
+  "zatwierdził",
+  "uznał",
+  "zaświadczył",
+  "udokumentował",
+  "przyznał",
+  "poświadczył",
+  "podał",
+];
 
 @Injectable()
 export class NewsService {
@@ -46,6 +72,35 @@ export class NewsService {
       }
     });
     return isValid;
+  };
+
+  analyzeTags(search, oldTopic) {
+    search = this.replaceWhiteChars(search)
+      .toLowerCase()
+      .split(" ")
+      .map((word) => word.slice(0, word.length - Math.floor(word.length * 0.25)));
+    const topic = oldTopic.map((w) => w.toLowerCase());
+    let result;
+    search.forEach((s) => {
+      const word = topic.find((word) => word.startsWith(s));
+      if (word) {
+        result = oldTopic.find((w) => w.toLowerCase() === word);
+      }
+    });
+    return result;
+  };
+
+  getTags(text, tagsTest) {
+    const tagsList = text.match(/(([A-Z]\w\s){2,})|(\w{6,})/g);
+    if (tagsList) {
+      return [
+        ...new Set(
+          tagsList.map((tag) => this.analyzeTags(tag, tagsTest)).filter((e) => e)
+        ),
+      ];
+    } else {
+      return [];
+    }
   };
 
   create(createNewsDto: CreateNewsDto) {
@@ -253,7 +308,7 @@ export class NewsService {
           $$('p', html).each(async (index, article) => {
             const oneParagraph = $$(article).text();
             const pureText = convert(oneParagraph, {wordwrap: false});
-            // console.log(pureText);
+
             const sentimentOfText = sentiment(pureText);
             score += sentimentOfText.score;
             comparative += sentimentOfText.comparative;
@@ -269,6 +324,23 @@ export class NewsService {
             }
             if(categories.length > 0)
               newNews.category = categories[0];
+
+            const allTags = await Tag.find();
+            const tags = this.getTags(pureText, allTags.map(tag => tag.name));
+
+            for (const tag of tags) {
+              // @ts-ignore
+              const newTag = await Tag.findOne({where: {name: tag}})
+              if(newNews.tags && !newNews.tags.find(one => one.name === newTag.name)) {
+                if (newNews.tags) {
+                  newNews.tags.push(newTag);
+                  await newNews.save();
+                } else {
+                  newNews.tags = [newTag];
+                  await newNews.save();
+                }
+              }
+            }
           });
 
           newNews.score = score;

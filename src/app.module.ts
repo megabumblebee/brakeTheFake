@@ -8,8 +8,8 @@ import { AuthModule } from './auth/auth.module';
 import { NewsModule } from './news/news.module';
 import { CategoryModule } from './category/category.module';
 import { SourceModule } from './source/source.module';
-import { InformationModule } from './information/information.module';
 import {ScheduleModule} from "@nestjs/schedule";
+import { TagModule } from './tag/tag.module';
 
 @Module({
   imports: [
@@ -22,7 +22,7 @@ import {ScheduleModule} from "@nestjs/schedule";
     NewsModule,
     CategoryModule,
     SourceModule,
-    InformationModule,
+    TagModule,
   ],
   controllers: [AppController],
   providers: [AppService],

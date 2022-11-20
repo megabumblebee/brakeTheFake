@@ -1,7 +1,8 @@
-import {BaseEntity, Column, Entity, ManyToOne, PrimaryGeneratedColumn} from "typeorm";
-import {Information} from "../../information/entities/information.entity";
+import {BaseEntity, Column, Entity, JoinColumn, ManyToMany, ManyToOne, OneToOne, PrimaryGeneratedColumn} from "typeorm";
 import {Source} from "../../source/entities/source.entity";
 import {Category} from "../../category/entities/category.entity";
+import {Tag} from "../../tag/entities/tag.entity";
+import {NewsFactor} from "./news-factor.entity";
 
 @Entity()
 export class News extends BaseEntity {
@@ -38,12 +39,6 @@ export class News extends BaseEntity {
   @Column()
   url: string;
 
-  @ManyToOne(
-    type => Information,
-    entity => entity.news,
-  )
-  information: Information;
-
   @Column({
     type: 'float',
   })
@@ -53,4 +48,17 @@ export class News extends BaseEntity {
     type: 'float',
   })
   comparative: number;
+
+  @ManyToMany(
+    type => Tag,
+    entity => entity.news,
+  )
+  tags: Tag[];
+
+  @OneToOne(
+    type => NewsFactor,
+    entity => entity.news,
+  )
+  @JoinColumn()
+  newsFactor: NewsFactor;
 }
