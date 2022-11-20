@@ -3,18 +3,24 @@ import { CreateNewsDto } from './dto/create-news.dto';
 import { UpdateNewsDto } from './dto/update-news.dto';
 import {Cron} from "@nestjs/schedule";
 import {XMLParser} from "fast-xml-parser";
-import * as fs from "fs";
 import {Source} from "../source/entities/source.entity";
 import {News} from "./entities/news.entity";
 import {Feed, NewsRes, Webpage} from "./news.interface";
-import {User} from "../user/entities/user.entity";
-import {MoreThan} from "typeorm";
 import {Category} from "../category/entities/category.entity";
 import {Tag} from "../tag/entities/tag.entity";
+import {NewsFactor} from "./entities/news-factor.entity";
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { convert } = require('html-to-text');
 const sentiment = require('sentiment-polish');
+
+const weights = {
+  'source': 0.4,
+  'legitimacy': 0.2,
+  'users': 0.2,
+  'sentiment': 0.1,
+  'authority': 0.1,
+}
 
 const fake = [
   "prawdopodobnie",
@@ -45,8 +51,38 @@ const legit = [
 export class NewsService {
 
   @Cron('00 * * * * *')
-  handleCron() {
+  handleCronEveryMinute() {
     this.downloadFeed();
+  }
+
+  @Cron('* * 00 * * *')
+  handleCronDaily() {
+    this.updateSourceFactor();
+  }
+
+  async updateSourceFactor() {
+    const sourceEntities = await Source.find({
+      relations: {news: true},
+    });
+
+    for (const sourceEntity of sourceEntities) {
+      const actual = sourceEntity.factor;
+      const lastNews = sourceEntity.news.filter(news => news.timestamp >= new Date(Date.now() - 1000 * 60 * 60 * 24));
+      const dailyTabOfLegit = [];
+      for (const newsFromSource of lastNews) {
+        const news = await News.findOne({
+          where: {id: newsFromSource.id},
+          relations: {newsFactor: true},
+        });
+        const tabOfLegit = Object.values(news.newsFactor).filter(a => typeof a === 'number');
+        const sumOfFactorsForNews = tabOfLegit.reduce((prev, curr) => prev + curr, 0);
+        dailyTabOfLegit.push(sumOfFactorsForNews);
+      }
+      const todayLegit = dailyTabOfLegit.reduce((prev, curr) => prev + curr, 0)/dailyTabOfLegit.length;
+      if(todayLegit > 0.8 && sourceEntity.factor < weights.source) sourceEntity.factor += 0.01;
+      else if(todayLegit < 0.7 && sourceEntity.factor > 0) sourceEntity.factor -= 0.01;
+      await sourceEntity.save();
+    }
   }
 
   replaceWhiteChars(text) {
@@ -101,6 +137,28 @@ export class NewsService {
     } else {
       return [];
     }
+  };
+
+  calculateLegitimacy (text) {
+    const legitimacy = this.replaceWhiteChars(text)
+      .toLowerCase()
+      .split(" ")
+      .reduce((acc, a) => {
+        if (fake.includes(a)) acc--;
+        if (legit.includes(a)) acc++;
+        return acc;
+      }, 0);
+    const legFinal = 0.5 + legitimacy * 0.05;
+    return legFinal > 1 ? 1 : legFinal < 0 ? 0 : legFinal;
+  };
+
+  calculateAuthority(text) {
+    const names = text.match(/([A-Z])\w+\s([A-Z])\w+/g);
+    if (names) {
+      const points = 0.5 + names.length * 0.025;
+      return points > 1 ? 1 : points;
+    }
+    return 0;
   };
 
   create(createNewsDto: CreateNewsDto) {
@@ -299,6 +357,7 @@ export class NewsService {
 
         newNews.timestamp = new Date(news.timestamp);
         newNews.url = news.link;
+        const factor = new NewsFactor();
 
         const res = await axios.get(newNews.url)
         const html = res.data;
@@ -308,6 +367,7 @@ export class NewsService {
           $$('p', html).each(async (index, article) => {
             const oneParagraph = $$(article).text();
             const pureText = convert(oneParagraph, {wordwrap: false});
+
 
             const sentimentOfText = sentiment(pureText);
             score += sentimentOfText.score;
@@ -341,6 +401,10 @@ export class NewsService {
                 }
               }
             }
+
+            // factors calculating
+            factor.legitimacy = this.calculateLegitimacy(pureText) * weights.legitimacy;
+            factor.authority = this.calculateAuthority(pureText) * weights.authority;
           });
 
           newNews.score = score;
@@ -348,7 +412,15 @@ export class NewsService {
 
           const sourceEntity = await Source.findOneBy({url: news.sourceUrl})
           newNews.source = sourceEntity;
+          factor.source = sourceEntity.factor;
+
+          const sentimentFactor = 1 - Math.abs(newNews.score) * 0.01;
+          factor.sentiment = (sentimentFactor < 0 ? 0 : sentimentFactor) * weights.sentiment;
           await newNews.save();
+          factor.news = newNews;
+          factor.users = weights.users * 0.5;
+          await factor.save();
+
         } catch (e) {}
       }
       },100*index);

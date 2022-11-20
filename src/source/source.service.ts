@@ -65,6 +65,7 @@ export class SourceService {
         const newSource = new Source();
         newSource.name = source.name;
         newSource.url = source.url;
+        newSource.factor = 0.2;
 
         await newSource.save();
       }

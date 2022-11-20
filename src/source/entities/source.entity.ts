@@ -17,4 +17,10 @@ export class Source extends BaseEntity {
     entity => entity.source,
   )
   news: News[];
+
+  @Column({
+    type: 'float',
+    default: 0.5,
+  })
+  factor: number;
 }

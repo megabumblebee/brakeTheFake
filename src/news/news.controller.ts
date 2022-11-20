@@ -12,6 +12,11 @@ export class NewsController {
     return this.newsService.downloadFeed();
   }
 
+  @Get('/update-sources')
+  updateSources() {
+    return this.newsService.updateSourceFactor();
+  }
+
   @Post()
   create(@Body() createNewsDto: CreateNewsDto) {
     return this.newsService.create(createNewsDto);
