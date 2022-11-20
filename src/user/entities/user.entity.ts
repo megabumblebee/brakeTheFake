@@ -1,7 +1,3 @@
-import {Injectable} from "@nestjs/common";
-import {RegisterUserResponse} from "../user.interface";
-import {CreateUserDto} from "../dto/create-user.dto";
-
 import { BaseEntity, Entity, PrimaryGeneratedColumn, Column } from "typeorm";
 import {Role} from "../role.enum";
 
