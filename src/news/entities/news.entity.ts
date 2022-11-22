@@ -2,7 +2,6 @@ import {BaseEntity, Column, Entity, JoinColumn, ManyToMany, ManyToOne, OneToOne,
 import {Source} from "../../source/entities/source.entity";
 import {Category} from "../../category/entities/category.entity";
 import {Tag} from "../../tag/entities/tag.entity";
-import {NewsFactor} from "./news-factor.entity";
 
 @Entity()
 export class News extends BaseEntity {
@@ -36,18 +35,15 @@ export class News extends BaseEntity {
   })
   timestamp: Date;
 
-  @Column()
+  @Column({
+    unique: true,
+  })
   url: string;
 
   @Column({
     type: 'float',
   })
-  score: number;
-
-  @Column({
-    type: 'float',
-  })
-  comparative: number;
+  sentiment: number;
 
   @ManyToMany(
     type => Tag,
@@ -55,10 +51,30 @@ export class News extends BaseEntity {
   )
   tags: Tag[];
 
-  @OneToOne(
-    type => NewsFactor,
-    entity => entity.news,
-  )
-  @JoinColumn()
-  newsFactor: NewsFactor;
+  @Column({
+    type: 'float',
+  })
+  sourceFactor: number;
+
+  @Column({
+    type: 'float',
+    nullable: true,
+    default: null,
+  })
+  usersFactor: number;
+
+  @Column({
+    type: 'float',
+  })
+  legitimacyFactor: number;
+
+  @Column({
+    type: 'float',
+  })
+  authorityFactor: number;
+
+  @Column({
+    type: 'float',
+  })
+  sentimentFactor: number;
 }

@@ -10,7 +10,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(cors({
-    origin: 'http://localhost:3000',//'http://app.lifetider.com',
+    origin: process.env.APP_HOST || 'http://localhost:3000',
     credentials: true,
   }));
   app.use(cookieParser());
@@ -28,6 +28,6 @@ async function bootstrap() {
     })
   );
 
-  await app.listen(process.env.PORT || 3001, '0.0.0.0');
+  await app.listen(process.env.PORT || 3001, process.env.HOST || '0.0.0.0');
 }
 bootstrap();

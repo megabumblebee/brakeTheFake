@@ -1,3 +1,8 @@
+/*
+    TODO: nie pamiętam
+ */
+
+
 const exclusions = [
   'zdecydowanie',
   'lepszy',

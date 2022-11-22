@@ -1,6 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { CreateAuthDto } from './dto/create-auth.dto';
-import { UpdateAuthDto } from './dto/update-auth.dto';
 import {AuthLoginDto} from "./dto/auth.login.dto";
 import {User} from "../user/entities/user.entity";
 import {comparePwd} from "../utils/compare-pwd";
@@ -28,7 +26,7 @@ export class AuthService {
       return res
         .cookie('jwt', token.accessToken, {
           secure: false,
-          domain: 'localhost',    //TODO: do zmiany przy produkcji
+          domain: process.env.HOST,
           httpOnly: true,
         })
         .json({ok: true})
@@ -48,7 +46,7 @@ export class AuthService {
         'jwt',
         {
           secure: false,
-          domain: 'localhost',
+          domain: process.env.HOST,
           httpOnly: true,
         }
       );
@@ -60,7 +58,7 @@ export class AuthService {
 
   private async createToken(currentToken: string, remember: boolean): Promise<{ accessToken: string, expiresIn: number }> {
     const payload: JwtPayload = {id: currentToken};
-    const expiresIn = remember ? 365 * 60 * 60 * 24 : 60 * 60 * 24; // 365 h / 24 h
+    const expiresIn = remember ? 365 * 60 * 60 * 24 : 60 * 60 * 24; // 365 d / 24 h
     const accessToken = sign(payload, secretOrKey, {expiresIn});
 
     return {
@@ -78,7 +76,7 @@ export class AuthService {
       });
     } while (!!userWithThisToken);
 
-    user.currentTokenId = token; //TODO: więcej informacji o każdym tokenie (przeglądarka, urządzenie)
+    user.currentTokenId = token;
     await user.save();
 
     return token;

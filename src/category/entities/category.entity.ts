@@ -16,10 +16,4 @@ export class Category extends BaseEntity {
     entity => entity.category,
   )
   news: News[];
-
-  @OneToMany(
-    type => News,
-    entity => entity.category,
-  )
-  information: News[];
 }

@@ -1,3 +1,7 @@
+/*
+    The algorithm will try to match each article with the tags indicated here
+ */
+
 export const tags = [
   "Minister",
   "Handel",

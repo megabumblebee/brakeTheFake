@@ -7,7 +7,7 @@ import { UpdateNewsDto } from './dto/update-news.dto';
 export class NewsController {
   constructor(private readonly newsService: NewsService) {}
 
-  @Get('/download')
+  @Get('my-secret-path/force-download')
   downloadFeed() {
     return this.newsService.downloadFeed();
   }
@@ -29,17 +29,17 @@ export class NewsController {
 
   @Get(':id')
   findOne(@Param('id') id: string) {
-    return this.newsService.findOne(+id);
+    return this.newsService.findOne(id);
   }
 
   @Patch(':id')
   update(@Param('id') id: string, @Body() updateNewsDto: UpdateNewsDto) {
-    return this.newsService.update(+id, updateNewsDto);
+    return this.newsService.update(id, updateNewsDto);
   }
 
   @Delete(':id')
   remove(@Param('id') id: string) {
-    return this.newsService.remove(+id);
+    return this.newsService.remove(id);
   }
 
 }

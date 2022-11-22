@@ -5,57 +5,27 @@ import {Cron} from "@nestjs/schedule";
 import {XMLParser} from "fast-xml-parser";
 import {Source} from "../source/entities/source.entity";
 import {News} from "./entities/news.entity";
-import {Feed, NewsRes, Webpage} from "./news.interface";
 import {Category} from "../category/entities/category.entity";
+import * as cheerio from 'cheerio';
+import * as sentimentCalc from 'sentiment-polish';
+import {fakeWords} from "../data/fakeWords";
+import {legitWords} from "../data/legitWords";
+import {newsFrequency, factorWeights, savingWithoutCategories} from "../config/app.config";
+import {transformNewsFromSource} from "../data/source-transformer";
+import {analyzeText, calculateAuthority, calculateLegitimacy, getTags} from "../utils/work-with-text";
 import {Tag} from "../tag/entities/tag.entity";
-import {NewsFactor} from "./entities/news-factor.entity";
 const axios = require('axios');
-const cheerio = require('cheerio');
-const { convert } = require('html-to-text');
-const sentiment = require('sentiment-polish');
-
-const weights = {
-  'source': 0.4,
-  'legitimacy': 0.2,
-  'users': 0.2,
-  'sentiment': 0.1,
-  'authority': 0.1,
-}
-
-const fake = [
-  "prawdopodobnie",
-  "rzekomo",
-  "może",
-  "ponoć",
-  "wydaje",
-  "zdaje",
-  "chyba",
-  "możliwe",
-  "przypuszczalnie",
-  "podobno",
-  "zapewne",
-];
-const legit = [
-  "potwierdził",
-  "udowodnił",
-  "zatwierdził",
-  "uznał",
-  "zaświadczył",
-  "udokumentował",
-  "przyznał",
-  "poświadczył",
-  "podał",
-];
+const {convert} = require('html-to-text');
 
 @Injectable()
 export class NewsService {
 
-  @Cron('00 * * * * *')
+  @Cron(`00 */${newsFrequency} * * * *`)
   handleCronEveryMinute() {
     this.downloadFeed();
   }
 
-  @Cron('* * 00 * * *')
+  @Cron('00 00 00 * * *')
   handleCronDaily() {
     this.updateSourceFactor();
   }
@@ -66,20 +36,27 @@ export class NewsService {
     });
 
     for (const sourceEntity of sourceEntities) {
-      const actual = sourceEntity.factor;
       const lastNews = sourceEntity.news.filter(news => news.timestamp >= new Date(Date.now() - 1000 * 60 * 60 * 24));
       const dailyTabOfLegit = [];
       for (const newsFromSource of lastNews) {
         const news = await News.findOne({
           where: {id: newsFromSource.id},
-          relations: {newsFactor: true},
         });
-        const tabOfLegit = Object.values(news.newsFactor).filter(a => typeof a === 'number');
-        const sumOfFactorsForNews = tabOfLegit.reduce((prev, curr) => prev + curr, 0);
+        const tabOfLegit = [
+          news.authorityFactor,
+          news.sentimentFactor,
+          news.legitimacyFactor,
+          news.usersFactor,
+          news.sourceFactor
+        ];
+        let sumOfFactorsForNews = 0;
+        for (const tabOfLegitKey in tabOfLegit) {
+          if(tabOfLegit[tabOfLegitKey]) sumOfFactorsForNews += tabOfLegit[tabOfLegitKey];
+        }
         dailyTabOfLegit.push(sumOfFactorsForNews);
       }
       const todayLegit = dailyTabOfLegit.reduce((prev, curr) => prev + curr, 0)/dailyTabOfLegit.length;
-      if(todayLegit > 0.8 && sourceEntity.factor < weights.source) sourceEntity.factor += 0.01;
+      if(todayLegit > 0.8 && sourceEntity.factor < factorWeights.source) sourceEntity.factor += 0.01;
       else if(todayLegit < 0.7 && sourceEntity.factor > 0) sourceEntity.factor -= 0.01;
       await sourceEntity.save();
     }
@@ -94,83 +71,48 @@ export class NewsService {
     return text;
   };
 
-  analyzeText(search, topic) {
-    search = this.replaceWhiteChars(search)
-      .toLowerCase()
-      .split(" ")
-      .map((word) => word.slice(0, word.length - Math.floor(word.length * 0.25)));
-    topic = this.replaceWhiteChars(topic).toLowerCase().split(" ");
-    // console.log(topic);
-    let isValid = true;
-    search.forEach((s) => {
-      if (!topic.find((word) => word.startsWith(s))) {
-        isValid = false;
-      }
-    });
-    return isValid;
-  };
 
-  analyzeTags(search, oldTopic) {
-    search = this.replaceWhiteChars(search)
-      .toLowerCase()
-      .split(" ")
-      .map((word) => word.slice(0, word.length - Math.floor(word.length * 0.25)));
-    const topic = oldTopic.map((w) => w.toLowerCase());
-    let result;
-    search.forEach((s) => {
-      const word = topic.find((word) => word.startsWith(s));
-      if (word) {
-        result = oldTopic.find((w) => w.toLowerCase() === word);
-      }
-    });
-    return result;
-  };
-
-  getTags(text, tagsTest) {
-    const tagsList = text.match(/(([A-Z]\w\s){2,})|(\w{6,})/g);
-    if (tagsList) {
-      return [
-        ...new Set(
-          tagsList.map((tag) => this.analyzeTags(tag, tagsTest)).filter((e) => e)
-        ),
-      ];
-    } else {
-      return [];
-    }
-  };
-
-  calculateLegitimacy (text) {
-    const legitimacy = this.replaceWhiteChars(text)
-      .toLowerCase()
-      .split(" ")
-      .reduce((acc, a) => {
-        if (fake.includes(a)) acc--;
-        if (legit.includes(a)) acc++;
-        return acc;
-      }, 0);
-    const legFinal = 0.5 + legitimacy * 0.05;
-    return legFinal > 1 ? 1 : legFinal < 0 ? 0 : legFinal;
-  };
-
-  calculateAuthority(text) {
-    const names = text.match(/([A-Z])\w+\s([A-Z])\w+/g);
-    if (names) {
-      const points = 0.5 + names.length * 0.025;
-      return points > 1 ? 1 : points;
-    }
-    return 0;
-  };
 
   create(createNewsDto: CreateNewsDto) {
     return 'This action adds a new news';
   }
 
   async findAll() {
-    const news = await News.find();
+    const news = await News.find({relations: {source: true, tags: true, category: true}});
+
     return news
       .filter(one => one.timestamp >= new Date(Date.now() - 1000 * 60 * 60 * 24 * 30))
+      .map(one => {
+        let colorOfSentiment = 'negative';
+        // if(one.score >= (-25)) colorOfSentiment = 'neutral';
+        // if(one.score > 25) colocolorOfSentiment = 'neutral';
+        // if(one.score > 25) colorOfSentiment = 'positive';
 
-      ;
+        let sumOfFactorsForNews = 0.5;
+        const tabOfLegit = [
+          one.authorityFactor,
+          one.sentimentFactor,
+          one.legitimacyFactor,
+          one.usersFactor,
+          one.sourceFactor
+        ];
+
+        sumOfFactorsForNews = tabOfLegit.reduce((prev, curr) => prev + curr, 0);
+
+        return {
+          id: one.id,
+          title: one.title,
+          abstract: one.abstract,
+          url: one.url,
+          sourceName: one.source.name,
+          sourceUrl: one.source.url,
+          timestamp: one.timestamp,
+          tags: one.tags.map(tag => tag.name),
+          category: one.category ? one.category.name : null,
+          sentiment: colorOfSentiment,
+          brakeFactor: sumOfFactorsForNews,
+        }
+      });
 
     // const articles = [];
 
@@ -195,236 +137,162 @@ export class NewsService {
     return null;
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} news`;
+  findOne(id: string) {
+    return `This action returns a ${id} news`;
   }
 
-  update(id: number, updateNewsDto: UpdateNewsDto) {
-    return `This action updates a #${id} news`;
+  update(id: string, updateNewsDto: UpdateNewsDto) {
+    return `This action updates a ${id} news`;
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} news`;
+  remove(id: string) {
+    return `This action removes a ${id} news`;
   }
 
   async downloadFeed() {
+    console.log("Downloading news...")
     const parser = new XMLParser();
-    const feeds = (await Source.find()).map(source => source.url);
+    const allSources = await Source.find();
 
-    // for (const feed of feeds) {
-    //   const {data} = await axios.get(feed);
-    //   const jObj = parser.parse(data);
-    //
-    //   console.log(jObj)
-    //
-    //   const feedEntity = {
-    //     ...jObj,
-    //     // source: feed,
-    //     // sourceName: feed.split("://").slice(1).join("").split("/")[0],
-    //   };
-    //   console.log(feedEntity)
-    // }
+    const allCategories = await Category.find({relations: {news: true}});
+    const countNewsForCategories = allCategories.map(category => category.news.length);
 
-    const feedsResults = feeds.map(async (feed, i) => {
-      return new Promise(async (res, rej) => {
+    const allTags = await Tag.find();
+
+    for (const sourceEntity of allSources) {
+      // I don't know why but this site often throws an error on the first connection and works fine on the second
+      if (sourceEntity.url === "https://wiadomosci.wp.pl/newssitemap.xml") {
         try {
-          const {data} = await axios.get(feed);
-          const jObj = parser.parse(data);
-          res({
-            ...jObj,
-            sourceUrl: feed,
-            // sourceName: feed.split("://").slice(1).join("").split("/")[0],
-          });
-        } catch (err) {
-          res({});
+          await axios.get(sourceEntity.url);
+        } catch (e) {
         }
-      });
-    });
-
-    let res = await Promise.all(feedsResults);
-
-    res = res.map((webpage: Webpage) => {
-      if (webpage.sourceUrl === "https://www.pb.pl/rss/najnowsze.xml") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          link: i.link,
-          description: i.description,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "https://www.polsatnews.pl/rss/wszystkie.xml") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          link: i.link,
-          description: i.description,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "https://www.bankier.pl/rss/wiadomosci.xml") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          link: i.link,
-          description: i.description,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "http://www.dobre-wiesci.pl/feed") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          link: i.link,
-          description: i.description,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "http://www.tvn24.pl/polska.xml") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          link: i.link,
-          description: i.description,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "http://www.tokfm.pl/pub/rss/tokfmpl_polska.xml") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          link: i.link,
-          description: i.description,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "https://centrumpr.pl/artykuly.rss") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          link: i.link,
-          description: i.description,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "wiadomosci.onet.pl") {
-        return webpage.urlset.url.map((i) => ({
-          title: i["news:news"]["news:title"],
-          link: i.loc,
-          timestamp: new Date(i["news:news"]["news:publication_date"]),
-          description: null,
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "https://wiadomosci.onet.pl/9,sitemap-news.xml") {
-        return webpage.urlset.url.map((i) => ({
-          title: i["news:news"]["news:title"],
-          link: i.loc,
-          timestamp: new Date(i["news:news"]["news:publication_date"]),
-          description: null,
-          sourceUrl: webpage.sourceUrl,
-        }));
-      } else if (webpage.sourceUrl === "http://www.tvn24.pl/polska.xml") {
-        return webpage.rss.channel.item.map((i) => ({
-          title: i.title,
-          description: i.description,
-          link: i.link,
-          timestamp: new Date(i.pubDate),
-          sourceUrl: webpage.sourceUrl,
-        }));
       }
-      return [];
-    });
 
-    // @ts-ignore
-    const newsRes: NewsRes[] = res
-      .flat()
-      // .filter(
-      //   (feed: Feed) =>
-      //     feed.timestamp >= new Date(Date.now() - 1000 * 60 * 60 * 24 * 30)
-      // );
+      try {
+        const {data} = await axios.get(sourceEntity.url);
+        const jsonSourceNewsObj = parser.parse(data);
 
-    for (const [index, news] of newsRes.entries()) {
-      setTimeout(async () => {
-      if(!await News.findOneBy({
-        title: news.title,
-      })){
-        const newNews = new News();
-        newNews.title = news.title;
+        const allNewsFromSourceToDatabase = transformNewsFromSource(jsonSourceNewsObj, sourceEntity.url);
 
-        let {score, comparative} = sentiment(newNews.title);
+        for (const feedNews of allNewsFromSourceToDatabase) {
 
-        const abstract = news.description ? news.description : null;
+          const findThisNewsInDb = await News.findOneBy({url: feedNews.link});
+          if(!findThisNewsInDb) {
+            const newNews = new News();
+            newNews.title = feedNews.title;
+            newNews.timestamp = new Date(feedNews.timestamp);
+            newNews.url = feedNews.link;
+            newNews.source = sourceEntity;
+            newNews.sourceFactor = sourceEntity.factor;
+            newNews.usersFactor = null;
 
-        if(abstract && (abstract.includes('<p>') || abstract.includes('<img'))){
-          const $ = cheerio.load(abstract);
-          newNews.abstract = $('p').text();
-        } else {
-          newNews.abstract = abstract;
-        }
+            newNews.abstract = feedNews.description;
 
-        newNews.timestamp = new Date(news.timestamp);
-        newNews.url = news.link;
-        const factor = new NewsFactor();
-
-        const res = await axios.get(newNews.url)
-        const html = res.data;
-
-        const $$ = cheerio.load(html)
-        try {
-          $$('p', html).each(async (index, article) => {
-            const oneParagraph = $$(article).text();
-            const pureText = convert(oneParagraph, {wordwrap: false});
-
-
-            const sentimentOfText = sentiment(pureText);
-            score += sentimentOfText.score;
-            comparative += sentimentOfText.comparative;
-
-            const allCategories = await Category.find();
-
-            const categories = [];
-            for (const categoryEntity of allCategories) {
-              if(this.analyzeText(categoryEntity.name, news.title))
-                categories.push(categoryEntity);
-              if(this.analyzeText(categoryEntity.name, pureText))
-                categories.push(categoryEntity);
+            if(feedNews.description){
+              if((feedNews.description.includes('<p>') || feedNews.description.includes('<img'))){
+                const $ = cheerio.load(feedNews.description);
+                newNews.abstract = $('p').text();
+              } else {
+                newNews.abstract = feedNews.description;
+              }
+            } else {
+              newNews.abstract = null;
             }
-            if(categories.length > 0)
-              newNews.category = categories[0];
 
-            const allTags = await Tag.find();
-            const tags = this.getTags(pureText, allTags.map(tag => tag.name));
+            let titleSentiment = sentimentCalc(newNews.title); //score, comparative, tokens.length
 
-            for (const tag of tags) {
-              // @ts-ignore
-              const newTag = await Tag.findOne({where: {name: tag}})
-              if(newNews.tags && !newNews.tags.find(one => one.name === newTag.name)) {
-                if (newNews.tags) {
-                  newNews.tags.push(newTag);
-                  await newNews.save();
-                } else {
-                  newNews.tags = [newTag];
-                  await newNews.save();
+            const {data: article} = await axios.get(feedNews.link)
+
+            const articleTags = [];
+            const articleSentiment = [];
+            const legitimacyFactor = [];
+            const authorityFactor = [];
+            const categories = [];
+
+            try {
+              const $ = cheerio.load(article);
+              $('p').each((index, article) => {
+                const oneParagraph = $(article).text();
+                const pureParagraphText = convert(oneParagraph, {wordwrap: false});
+
+                articleSentiment.push(sentimentCalc(pureParagraphText));
+                legitimacyFactor.push(calculateLegitimacy(pureParagraphText, fakeWords, legitWords));
+                authorityFactor.push(calculateAuthority(pureParagraphText));
+
+
+                for (const index of allCategories.keys()) {
+                  if(analyzeText(allCategories[index].name, feedNews.title))
+                    categories.push({category: allCategories[index], count: countNewsForCategories[index]});
+                  if(analyzeText(allCategories[index].name, pureParagraphText))
+                    categories.push({category: allCategories[index], count: countNewsForCategories[index]});
+                }
+
+                const tagsInParagraph = getTags(pureParagraphText, allTags.map(tag => tag.name));
+                for (const tagInParagraph of tagsInParagraph) {
+                  if(!articleTags.includes(tagInParagraph)) articleTags.push(tagInParagraph);
+                }
+              });
+            } catch (e) {
+              console.log('### Problem with article from : ' + feedNews.link)
+            } // end of work with cheerio
+            if(savingWithoutCategories || categories.length > 0) {
+
+              // legitimacyFactor;
+              // authorityFactor;
+              // articleSentiment;
+              // titleSentiment;
+              //       const sentimentFactor = 1 - Math.abs(newNews.score) * 0.01;
+              //       newNews.sentimentFactor = (sentimentFactor < 0 ? 0 : sentimentFactor) * weights.sentiment;
+              let sumOfSentimentPoints = 0;
+              let countWords = 0;
+              for (const paragraphSentiment of articleSentiment) {
+                sumOfSentimentPoints += paragraphSentiment.score;
+                countWords += paragraphSentiment.tokens.length;
+              }
+              //sentiment in title is more important
+              sumOfSentimentPoints += titleSentiment.score * 10;
+              countWords += titleSentiment.tokens.length;
+              newNews.sentiment = sumOfSentimentPoints/countWords*10;
+              if(newNews.sentiment < -1) newNews.sentiment = -1;
+              if(newNews.sentiment > 1) newNews.sentiment = 1;
+
+              if(legitimacyFactor)
+                newNews.legitimacyFactor = legitimacyFactor.reduce((prev, curr) => prev + curr, 0)/legitimacyFactor.length;
+              else
+                newNews.legitimacyFactor = 0.5
+
+              const authoritySum = authorityFactor.reduce((prev, curr) => prev+curr, 0);
+              newNews.authorityFactor = authoritySum > 1 ? 1 : authoritySum;
+
+              newNews.sentimentFactor = 1 - Math.abs(newNews.sentiment);
+
+              newNews.tags = [];
+              for (const articleTag of articleTags) {
+                let tagEntity = await Tag.findOne({where: {name: articleTag}});
+                if (tagEntity) {
+                  newNews.tags.push(tagEntity);
                 }
               }
+
+              if(categories.length > 0){
+                // the less news about a category, the more detailed it is
+                categories.sort((a,b) => a.count - b.count);
+                newNews.category = categories[0].category;
+              } else {
+                newNews.category = null;
+              }
+
+              await newNews.save();
             }
+          }
+        }
 
-            // factors calculating
-            factor.legitimacy = this.calculateLegitimacy(pureText) * weights.legitimacy;
-            factor.authority = this.calculateAuthority(pureText) * weights.authority;
-          });
 
-          newNews.score = score;
-          newNews.comparative = comparative;
-
-          const sourceEntity = await Source.findOneBy({url: news.sourceUrl})
-          newNews.source = sourceEntity;
-          factor.source = sourceEntity.factor;
-
-          const sentimentFactor = 1 - Math.abs(newNews.score) * 0.01;
-          factor.sentiment = (sentimentFactor < 0 ? 0 : sentimentFactor) * weights.sentiment;
-          await newNews.save();
-          factor.news = newNews;
-          factor.users = weights.users * 0.5;
-          await factor.save();
-
-        } catch (e) {}
+      } catch (e) {
+        console.log('### Problem with news from : ' + sourceEntity.url);
       }
-      },100*index);
     }
+    console.log("Downloading success!")
     return {success: true};
   }
 }
