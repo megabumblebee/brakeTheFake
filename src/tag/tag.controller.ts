@@ -7,7 +7,7 @@ import { UpdateTagDto } from './dto/update-tag.dto';
 export class TagController {
   constructor(private readonly tagService: TagService) {}
 
-  @Post('/create-tags')
+  @Get('/my-secret-path/create-tags')
   createDummyTags() {
     return this.tagService.createDummyTags();
   }

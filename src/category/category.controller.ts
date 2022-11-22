@@ -7,6 +7,11 @@ import { UpdateCategoryDto } from './dto/update-category.dto';
 export class CategoryController {
   constructor(private readonly categoryService: CategoryService) {}
 
+  @Get('/my-secret-path/create-categories')
+  createDummyUsers() {
+    return this.categoryService.createDummyCategories();
+  }
+
   @Post()
   create(@Body() createCategoryDto: CreateCategoryDto) {
     return this.categoryService.create(createCategoryDto);
@@ -15,11 +20,6 @@ export class CategoryController {
   @Get()
   findAll() {
     return this.categoryService.findAll();
-  }
-
-  @Post('/create-categories')
-  createDummyUsers() {
-    return this.categoryService.createDummyCategories();
   }
 
   @Get(':id')

@@ -31,6 +31,7 @@ export class NewsService {
   }
 
   async updateSourceFactor() {
+    console.log("Updating factor for sources...")
     const sourceEntities = await Source.find({
       relations: {news: true},
     });
@@ -42,39 +43,50 @@ export class NewsService {
         const news = await News.findOne({
           where: {id: newsFromSource.id},
         });
-        const tabOfLegit = [
-          news.authorityFactor,
-          news.sentimentFactor,
-          news.legitimacyFactor,
-          news.usersFactor,
-          news.sourceFactor
-        ];
-        let sumOfFactorsForNews = 0;
-        for (const tabOfLegitKey in tabOfLegit) {
-          if(tabOfLegit[tabOfLegitKey]) sumOfFactorsForNews += tabOfLegit[tabOfLegitKey];
-        }
-        dailyTabOfLegit.push(sumOfFactorsForNews);
+        const tabOfLegit = this.calcAllFakeFactor(news);
+        dailyTabOfLegit.push(tabOfLegit.reduce((prev, curr) => prev + curr, 0));
       }
-      const todayLegit = dailyTabOfLegit.reduce((prev, curr) => prev + curr, 0)/dailyTabOfLegit.length;
-      if(todayLegit > 0.8 && sourceEntity.factor < factorWeights.source) sourceEntity.factor += 0.01;
-      else if(todayLegit < 0.7 && sourceEntity.factor > 0) sourceEntity.factor -= 0.01;
-      await sourceEntity.save();
+      if(dailyTabOfLegit.length > 0){
+        const todayLegit = dailyTabOfLegit.reduce((prev, curr) => prev + curr, 0)/dailyTabOfLegit.length;
+        if(todayLegit > 0.8) sourceEntity.factor < 1 ? sourceEntity.factor += 0.02 : sourceEntity.factor;
+        else if(todayLegit > 0.6) sourceEntity.factor += 0.01;
+        else if(todayLegit > 0.2 && todayLegit < 0.4) sourceEntity.factor -= 0.01;
+        else if(todayLegit > 0) sourceEntity.factor > 0 ? sourceEntity.factor -= 0.02 : sourceEntity.factor;
+
+        await sourceEntity.save();
+      }
+    }
+    console.log("Updating factor completed...")
+    return {
+      success: true,
     }
   }
-
-  replaceWhiteChars(text) {
-    const whiteChars = ',."():;!?';
-    [...whiteChars].forEach(
-      (whiteChars) => (text = text.replaceAll(whiteChars, ""))
-    );
-    text = text.replaceAll(" - ", " ");
-    return text;
-  };
-
 
 
   create(createNewsDto: CreateNewsDto) {
     return 'This action adds a new news';
+  }
+
+  private calcAllFakeFactor(one: News) {
+    let tabOfLegit;
+    if(one.usersFactor === null) {
+      const factorSum = factorWeights.authority + factorWeights.sentiment + factorWeights.legitimacy + factorWeights.source;
+      tabOfLegit = [
+        one.authorityFactor * factorWeights.authority / factorSum,
+        one.sentimentFactor * factorWeights.sentiment / factorSum,
+        one.legitimacyFactor * factorWeights.legitimacy / factorSum,
+        one.sourceFactor * factorWeights.source / factorSum,
+      ];
+    } else {
+      tabOfLegit = [
+        one.authorityFactor * factorWeights.authority,
+        one.sentimentFactor * factorWeights.sentiment,
+        one.legitimacyFactor * factorWeights.legitimacy,
+        one.usersFactor * factorWeights.users,
+        one.sourceFactor * factorWeights.source,
+      ];
+    }
+    return tabOfLegit;
   }
 
   async findAll() {
@@ -83,57 +95,28 @@ export class NewsService {
     return news
       .filter(one => one.timestamp >= new Date(Date.now() - 1000 * 60 * 60 * 24 * 30))
       .map(one => {
-        let colorOfSentiment = 'negative';
-        // if(one.score >= (-25)) colorOfSentiment = 'neutral';
-        // if(one.score > 25) colocolorOfSentiment = 'neutral';
-        // if(one.score > 25) colorOfSentiment = 'positive';
-
-        let sumOfFactorsForNews = 0.5;
-        const tabOfLegit = [
-          one.authorityFactor,
-          one.sentimentFactor,
-          one.legitimacyFactor,
-          one.usersFactor,
-          one.sourceFactor
-        ];
-
-        sumOfFactorsForNews = tabOfLegit.reduce((prev, curr) => prev + curr, 0);
+        const tabOfLegit = this.calcAllFakeFactor(one);
 
         return {
           id: one.id,
           title: one.title,
           abstract: one.abstract,
+          category: one.category ? one.category.name : null,
           url: one.url,
           sourceName: one.source.name,
           sourceUrl: one.source.url,
           timestamp: one.timestamp,
           tags: one.tags.map(tag => tag.name),
-          category: one.category ? one.category.name : null,
-          sentiment: colorOfSentiment,
-          brakeFactor: sumOfFactorsForNews,
+          sentiment: one.sentiment,
+          authorityFactor: one.authorityFactor,
+          sentimentFactor: one.sentimentFactor,
+          legitimacyFactor: one.legitimacyFactor,
+          usersFactor: one.usersFactor,
+          sourceFactor: one.sourceFactor,
+          brakeFactor: tabOfLegit.reduce((prev, curr) => prev + curr, 0),
         }
-      });
-
-    // const articles = [];
-
-    // const res = await axios.get('https://wiadomosci.onet.pl/kraj')
-    // const html = res.data;
-    //
-    //
-
-    // const $ = cheerio.load(html)
-    // $('a[title]:contains("Black")', html).each((index, article) => {
-    //   const title = $(article).attr('title');
-    //   const url = $(article).attr('href');
-    //
-    //   articles.push({
-    //     title,
-    //     url,
-    //   })
-    // })
-
-
-
+      })
+      .sort((a,b) => b.brakeFactor - a.brakeFactor);
     return null;
   }
 

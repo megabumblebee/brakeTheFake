@@ -7,6 +7,11 @@ import { UpdateSourceDto } from './dto/update-source.dto';
 export class SourceController {
   constructor(private readonly sourceService: SourceService) {}
 
+  @Get('/my-secret-path/create-sources')
+  createDummySources() {
+    return this.sourceService.createDummySources();
+  }
+
   @Post()
   create(@Body() createSourceDto: CreateSourceDto) {
     return this.sourceService.create(createSourceDto);
@@ -32,8 +37,4 @@ export class SourceController {
     return this.sourceService.remove(+id);
   }
 
-  @Post('/create-sources')
-  createDummySources() {
-    return this.sourceService.createDummySources();
-  }
 }

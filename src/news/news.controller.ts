@@ -1,18 +1,26 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
-import { NewsService } from './news.service';
-import { CreateNewsDto } from './dto/create-news.dto';
-import { UpdateNewsDto } from './dto/update-news.dto';
+import {Body, Controller, Delete, Get, Param, Patch, Post, UseGuards} from '@nestjs/common';
+import {NewsService} from './news.service';
+import {CreateNewsDto} from './dto/create-news.dto';
+import {UpdateNewsDto} from './dto/update-news.dto';
+import {Roles} from "../decorators/roles.decorator";
+import {Role} from "../user/role.enum";
+import {AuthGuard} from "@nestjs/passport";
+import {RolesGuard} from "../guards/roles.guard";
 
 @Controller('news')
 export class NewsController {
   constructor(private readonly newsService: NewsService) {}
 
+  @Roles(Role.Admin)
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Get('my-secret-path/force-download')
   downloadFeed() {
     return this.newsService.downloadFeed();
   }
 
-  @Get('/update-sources')
+  @Roles(Role.Admin)
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Get('my-secret-path/force-update-sources')
   updateSources() {
     return this.newsService.updateSourceFactor();
   }
@@ -22,6 +30,8 @@ export class NewsController {
     return this.newsService.create(createNewsDto);
   }
 
+  @Roles(Role.User, Role.Admin)
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Get('/')
   findAll() {
     return this.newsService.findAll();

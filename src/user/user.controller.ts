@@ -8,6 +8,11 @@ import {AuthGuard} from "@nestjs/passport";
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @Get('/my-secret-path/create-users')
+  createDummyUsers() {
+    return this.userService.createDummyUsers();
+  }
+
   @Post()
   create(@Body() newUser: CreateUserDto) {
     return this.userService.create(newUser);
@@ -23,11 +28,6 @@ export class UserController {
   @UseGuards(AuthGuard('jwt'))
   findAllComplete() {
     return this.userService.findAllComplete();
-  }
-
-  @Post('/create-users')
-  createDummyUsers() {
-    return this.userService.createDummyUsers();
   }
 
   @Get(':id')

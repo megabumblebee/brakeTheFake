@@ -68,7 +68,7 @@ In folder `data` you can change all data which the algorithm processing.
 3. `npm i` - install all packages
 4. `nest start --watch` - start the server on [http://localhost:3001](http://localhost:3001)
 5. Make some data - just open the right links -> details in end-points 😎
-6. App is working and every minute will download news to database.
+6. App is working and every 5 minutes will download news to database.
 7. Enjoy!
 
 ## End-points
@@ -130,12 +130,29 @@ body in JSON - _**remember**: true - logging for 1 year, false - logging for 24h
 #### Response:
 ````
 [{
+    id: string, //uuid
+    title: string,
+    abstract: string,
+    category: string | null,
+    url: string,
+    sourceName: string,
+    sourceUrl: string,
+    timestamp: Date,
+    tags: string[],
+    
+    // value -1 ~ 1 // -1 - totally negative, 0 - neutral, 1 - totally positive
+    sentiment: number;
+    
     // below value 0 ~ 1 // 0 = totally fake // 1 - tottaly legit
     sourceFactor: number,
     legitimacyFactor: number,
     authorityFactor: number,
     sentimentFactor: number,
     userFactor: number | null, // null - user not response yet
+    
+    // factor sum determined by weights
+    // value 0 ~ 1 // 0 = totally fake // 1 - tottaly legit
+    brakeFactor: number;
 }, ...
 ]
 ````
@@ -145,8 +162,12 @@ body in JSON - _**remember**: true - logging for 1 year, false - logging for 24h
 #### [http://localhost:3001/news/my-secret-path/force-download/](http://localhost:3001/news/my-secret-path/force-download/) - GET
 Forced downloading of messages outside the specified time period
 
+**authorization check** - you must be logged in admin account
+
 ---
 
 #### [http://localhost:3001/news/my-secret-path/force-update-sources/](http://localhost:3001/news/my-secret-path/force-update-sources/) - GET
 
 Forced assessing the credibility of sources beyond the specified time period
+
+**authorization check** - you must be logged in admin account

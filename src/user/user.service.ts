@@ -6,6 +6,7 @@ import {User} from "./entities/user.entity";
 import {hashPwd} from "../utils/hash-pwd";
 import {saltRounds} from "../config/jwt.config";
 import {Role} from "./role.enum";
+import {users} from "../data/users";
 
 @Injectable()
 export class UserService {
@@ -66,11 +67,6 @@ export class UserService {
   }
 
   async createDummyUsers(): Promise<{ success: boolean }> {
-    const users: CreateUserDto[] = [
-      {username: 'admin', pwd: 'admin', role: Role.Admin},
-      {username: 'user', pwd: 'user', role: Role.User}
-    ];
-
     for (const user of users) {
       if(!await User.findOneBy({username: user.username})){
         const newUser = new User();
